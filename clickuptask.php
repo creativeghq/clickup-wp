@@ -18,7 +18,10 @@ class clickuptask
 
     public function __construct()
     {
-        add_action('wp_enqueue_scripts', array($this, 'clickuptask_scripts'),100);
+        add_action('wp_enqueue_scripts', array($this, 'clickuptask_scripts'));
+
+        // add_filter( 'script_loader_tag', array($this, 'set_scripts_type_attribute'), 10, 3 );
+
         add_shortcode('clickup-task-list', array($this, 'clickup_task_list'));
         add_action('init', array($this, 'add_rewrite_endpoints'));
 
@@ -26,8 +29,20 @@ class clickuptask
         add_action('wp_ajax_nopriv_clickup_get_user', array($this, 'clickup_get_user'));
 
 
+        add_action('wp_ajax_clickup_task_comments', array($this, 'clickup_task_comments'));
+        add_action('wp_ajax_nopriv_clickup_task_comments', array($this, 'clickup_task_comments'));
+
+
+        add_action('wp_ajax_clickup_post_reply', array($this, 'clickup_post_reply'));
+        add_action('wp_ajax_nopriv_clickup_post_reply', array($this, 'clickup_post_reply'));
+
+
         add_action('wp_ajax_clickup_get_teams_spaces', array($this, 'clickup_get_teams_spaces'));
         add_action('wp_ajax_nopriv_clickup_get_teams_spaces', array($this, 'clickup_get_teams_spaces'));
+
+
+        add_action('wp_ajax_clickup_post_comment', array($this, 'clickup_post_comment'));
+        add_action('wp_ajax_nopriv_clickup_post_comment', array($this, 'clickup_post_comment'));
 
 
         add_action('wp_ajax_clickup_get_projects', array($this, 'clickup_get_projects'));
@@ -70,17 +85,46 @@ class clickuptask
 
     public function clickup_get_space($team_id, $access_token)
     {
-    	$response = $this->curl_get('https://api.clickup.com/api/v1/team/'.$team_id.'/space',$access_token);
+    	$response = $this->curl_get('https://api.clickup.com/api/v2/team/'.$team_id.'/space?archived=false',$access_token);
     	return json_decode($response, true);
     	
+    }
+
+    public function clickup_task_comments()
+    {
+        $access_token = $_POST['access_token'];
+        $task_id = $_POST['task_id'];
+
+        $response = $this->curl_get('https://api.clickup.com/api/v2/task/'.$task_id.'/comment',$access_token);
+        print_r($response);die;
+        return json_decode($response, true);
     }
 
     public function clickup_get_projects()
     {
         $access_token = $_POST['access_token'];
     	$space_id = $_POST['space_id'];
-    	$response = $this->curl_get('https://api.clickup.com/api/v1/space/'.$space_id.'/project',$access_token);
+    	$response = $this->curl_get('https://api.clickup.com/api/v2/space/'.$space_id.'/folder',$access_token);
     	echo $response;die;
+    }
+
+    public function clickup_post_comment()
+    {
+        $access_token = $_POST['access_token'];
+        $task_id = $_POST['task_id'];
+        $comment = $_POST['comment'];
+        $response = $this->curl_post('https://api.clickup.com/api/v2/task/'.$task_id.'/comment',$access_token, $comment);
+        
+        echo $response;die;
+    }
+
+    public function clickup_post_reply()
+    {
+        $access_token = $_POST['access_token'];
+        $view_id = $_POST['view_id'];   
+        $comment = $_POST['comment'];
+        $response = $this->curl_post('https://api.clickup.com/api/v2/view/'.$view_id.'/comment',$access_token, $comment);
+        echo $response;die;
     }
 
     public function clickup_get_tasks()
@@ -92,18 +136,23 @@ class clickuptask
     	$list_id = $_POST['list_id'];
     	$page = $_POST['page'];
     	if(!$page) {
-    		$page = 1;
+    		$page = 0;
     	}
-    	$response = $this->curl_get('https://api.clickup.com/api/v1/team/'.$team_id.'/task?space_ids[]='.$space_id.'&project_ids[]='.$project_id.'&list_ids[]='.$list_id,$access_token);
+
+        $response = $this->curl_get('https://api.clickup.com/api/v2/list/'.$list_id.'/task?space_ids[]='.$space_id.'&project_ids[]='.$project_id.'&team_id='.$team_id,$access_token);
+
     	echo $response;die;
     }
 
 
     public function clickup_task_list()
     {
-		 if(!is_admin()) {
+        // echo is_admin();die;
+
+        if(!is_admin()) {
             return $this->render('clickup_list_task');
         }
+        
     }
 
     public function add_rewrite_endpoints()
@@ -117,6 +166,10 @@ class clickuptask
 
     public function clickuptask_scripts()
     {
+        wp_enqueue_style( 'clickupcss', plugin_dir_url(__FILE__).'assets/style.css', null, 1.0);
+        wp_enqueue_style('modalcss', plugin_dir_url(__FILE__) . 'assets/vue-modal.css');
+        wp_enqueue_script('dayjs', 'https://unpkg.com/dayjs@1.8.21/dayjs.min.js');
+
         wp_enqueue_script(
             'jquery'
         );
@@ -124,11 +177,23 @@ class clickuptask
         if (!wp_script_is('vuejs', 'enqueued')) {
             wp_enqueue_script(
                 'vuejs',
-                'https://cdnjs.cloudflare.com/ajax/libs/vue/2.3.4/vue.min.js',
+                'https://cdn.jsdelivr.net/npm/vue@2',
                 array()
             );
         }
+        wp_enqueue_script('modal', plugin_dir_url(__FILE__) . 'assets/vue-modal.umd.min.js', array('vuejs'));
+        
+
+
     }
+
+    // public function set_scripts_type_attribute( $tag, $handle, $src ) {
+    //     if ( 'module_handle' === $handle ) {
+    //         $tag = '<script type="module" src="'. $src .'"></script>';
+    //     }
+    //     return $tag;
+    // }
+    
 
     public function template_redirect()
     {
@@ -181,7 +246,24 @@ class clickuptask
         $return = curl_exec($ch);
         curl_close($ch);
 
+
         // $projects = json_decode($return, true);
+        return $return;
+    }
+
+    public function curl_post($url, $access_token, $comment)
+    {
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_POST, 1);
+        curl_setopt($ch, CURLOPT_POSTFIELDS,
+            "comment_text=".$comment."&notify_all=true");
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: " . $access_token]);
+
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        $return = curl_exec($ch);
+        curl_close($ch);
         return $return;
     }
 
